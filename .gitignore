@@ -1,0 +1,14 @@
+# Secrets / credentials — never commit
+.env
+*.secret
+client_secret*
+
+# Exported files / output
+export/
+*.pdf
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
