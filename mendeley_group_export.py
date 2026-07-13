@@ -35,6 +35,7 @@ AUTHORIZE_URL = f"{API}/oauth/authorize"
 TOKEN_URL = f"{API}/oauth/token"
 REDIRECT_URI = "http://localhost:8080/callback"
 REDIRECT_PORT = 8080
+USER_AGENT = "Mendeley-tools/1.0 (+local export script)"
 
 
 # ---------------------------------------------------------------- OAuth ------
@@ -98,8 +99,16 @@ def get_access_token(client_id, client_secret):
     req = urllib.request.Request(TOKEN_URL, data=body, method="POST")
     req.add_header("Authorization", f"Basic {basic}")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    with urllib.request.urlopen(req) as resp:
-        tok = json.load(resp)
+    req.add_header("User-Agent", USER_AGENT)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            tok = json.load(resp)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        sys.exit(f"Token exchange failed: HTTP {e.code} {e.reason}\n"
+                 f"Server said: {detail}\n"
+                 f"(Common causes: wrong client secret, or redirect URI not "
+                 f"registered as exactly {REDIRECT_URI})")
     return tok["access_token"]
 
 
@@ -108,6 +117,7 @@ def _open(token, url, accept, follow=True):
     req = urllib.request.Request(url)
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Accept", accept)
+    req.add_header("User-Agent", USER_AGENT)
     if follow:
         return urllib.request.urlopen(req)
 
@@ -215,7 +225,9 @@ def main():
             print(f"  ! no download URL for {fname} (HTTP {getattr(resp,'code','?')})")
             continue
         try:
-            with urllib.request.urlopen(loc) as r, open(out, "wb") as w:
+            dlreq = urllib.request.Request(loc)
+            dlreq.add_header("User-Agent", USER_AGENT)
+            with urllib.request.urlopen(dlreq) as r, open(out, "wb") as w:
                 w.write(r.read())
             ok += 1
             print(f"  + {fname}")
