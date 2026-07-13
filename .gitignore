@@ -1,7 +1,13 @@
 # Secrets / credentials — never commit
 .env
+.env.*
+!.env.example
 *.secret
 client_secret*
+# OAuth tokens (in case token caching is ever added)
+*token*.json
+token*
+.token
 
 # Exported files / output
 export/
