@@ -19,6 +19,7 @@ so you can copy the exact name.
 
 import argparse
 import base64
+import csv
 import http.server
 import json
 import os
@@ -150,11 +151,68 @@ def sanitize(name, maxlen=150):
     return (name[:maxlen] or "untitled")
 
 
+def _fmt_authors(doc):
+    out = []
+    for a in doc.get("authors", []) or []:
+        last = a.get("last_name", "")
+        first = a.get("first_name", "")
+        out.append(f"{last}, {first}".strip(", ").strip())
+    return "; ".join(out)
+
+
+META_COLUMNS = ["title", "authors", "year", "type", "source",
+                "doi", "isbn", "issn", "pmid", "has_pdf", "pdf_filename", "id"]
+
+
+def _doc_row(doc, pdf_by_doc):
+    ids = doc.get("identifiers", {}) or {}
+    pdf = pdf_by_doc.get(doc["id"])
+    return {
+        "title": doc.get("title", ""),
+        "authors": _fmt_authors(doc),
+        "year": doc.get("year", ""),
+        "type": doc.get("type", ""),
+        "source": doc.get("source", ""),
+        "doi": ids.get("doi", ""),
+        "isbn": ids.get("isbn", ""),
+        "issn": ids.get("issn", ""),
+        "pmid": ids.get("pmid", ""),
+        "has_pdf": "yes" if pdf else "no",
+        "pdf_filename": pdf or "",
+        "id": doc["id"],
+    }
+
+
+def write_metadata(dest, docs, pdf_by_doc):
+    """Write references.csv and references.json for every document in the group."""
+    rows = [_doc_row(d, pdf_by_doc) for d in docs]
+    rows.sort(key=lambda r: (r["year"] or "", r["title"].lower()))
+
+    csv_path = os.path.join(dest, "references.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=META_COLUMNS)
+        w.writeheader()
+        w.writerows(rows)
+
+    json_path = os.path.join(dest, "references.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(docs, f, ensure_ascii=False, indent=2)
+
+    with_pdf = sum(1 for r in rows if r["has_pdf"] == "yes")
+    print(f"\nMetadata: {len(rows)} references written "
+          f"({with_pdf} with a PDF, {len(rows) - with_pdf} reference-only)")
+    print(f"  - {csv_path}")
+    print(f"  - {json_path}  (full raw records)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--group", help="Exact group name (case-insensitive)")
     ap.add_argument("--dest", help="Destination folder")
     ap.add_argument("--list-groups", action="store_true", help="Just list groups and exit")
+    ap.add_argument("--include-metadata", action="store_true",
+                    help="Also write references.csv and references.json for every "
+                         "reference in the group (including those without a PDF)")
     args = ap.parse_args()
 
     cid = os.environ.get("MENDELEY_CLIENT_ID")
@@ -185,12 +243,11 @@ def main():
     gid = group["id"]
     print(f'Group: {group["name"]}  (id={gid})')
 
-    # doc_id -> title, for naming
-    titles = {}
-    for d in paged(token, "/documents", "application/vnd.mendeley-document.1+json",
-                   {"group_id": gid, "limit": 500}):
-        titles[d["id"]] = d.get("title", d["id"])
-    print(f"Documents in group: {len(titles)}")
+    # Full document records (view=all gives authors, year, identifiers, etc.)
+    docs = list(paged(token, "/documents", "application/vnd.mendeley-document.1+json",
+                      {"group_id": gid, "limit": 500, "view": "all"}))
+    titles = {d["id"]: d.get("title", d["id"]) for d in docs}
+    print(f"Documents in group: {len(docs)}")
 
     files = list(paged(token, "/files", "application/vnd.mendeley-file.1+json",
                        {"group_id": gid, "limit": 500}))
@@ -202,6 +259,7 @@ def main():
     print(f"Downloading into: {dest}\n")
 
     used = set()
+    pdf_by_doc = {}
     ok = 0
     for f in files:
         fid = f["id"]
@@ -230,11 +288,15 @@ def main():
             with urllib.request.urlopen(dlreq) as r, open(out, "wb") as w:
                 w.write(r.read())
             ok += 1
+            pdf_by_doc[f.get("document_id")] = fname
             print(f"  + {fname}")
         except Exception as e:
             print(f"  ! failed {fname}: {e}")
 
     print(f"\nDone. {ok}/{len(files)} files copied to {dest}")
+
+    if args.include_metadata:
+        write_metadata(dest, docs, pdf_by_doc)
 
 
 if __name__ == "__main__":

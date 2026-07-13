@@ -28,7 +28,23 @@ python mendeley_group_export.py --list-groups
 
 # 2. Copy one group's files out, named by document title
 python mendeley_group_export.py --group "Exact Group Name" --dest "C:\path\to\out"
+
+# 3. ...and also write references.csv + references.json for EVERY reference
+#    in the group (including those with no attached PDF)
+python mendeley_group_export.py --group "Exact Group Name" --dest "C:\path\to\out" --include-metadata
 ```
+
+### `--include-metadata`
+
+Writes two files into the destination folder:
+
+- **`references.csv`** — one row per reference (title, authors, year, type,
+  source, doi, isbn, issn, pmid, `has_pdf`, `pdf_filename`, id), sorted by
+  year then title. UTF-8 with BOM so Excel opens accented characters cleanly.
+- **`references.json`** — the full raw document records from the API.
+
+This captures reference-only entries (no PDF attached) that the file export
+alone would miss.
 
 If `--group` is omitted or doesn't match, the script prints all your groups and
 exits so you can copy the exact name.
